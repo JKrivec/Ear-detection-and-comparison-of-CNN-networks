@@ -58,7 +58,7 @@ class Evaluation:
 				count_correct += 1
 			count_all += 1
 
-	
+		print("count all -> ", count_all)
 		score = count_correct/count_all
 		
 		return score*100
@@ -69,27 +69,3 @@ class Evaluation:
 			acc_by_rank_list.append(self.compute_rankN_nn(Y, y, rank))
 
 		return acc_by_rank_list
-			
-
-	# Add your own metrics here, such as rank5, (all ranks), CMC plot, ROC, ...
-
-		# def compute_rank5(self, Y, y):
-	# 	# First loop over classes in order to select the closest for each class.
-	# 	classes = np.unique(sorted(y))
-		
-	# 	sentinel = 0
-	# 	for cla1 in classes:
-	# 		idx1 = y==cla1
-	# 		if (list(idx1).count(True)) <= 1:
-	# 			continue
-	# 		Y1 = Y[idx1==True, :]
-
-	# 		for cla2 in classes:
-	# 			# Select the closest that is higher than zero:
-	# 			idx2 = y==cla2
-	# 			if (list(idx2).count(True)) <= 1:
-	# 				continue
-	# 			Y2 = Y1[:, idx1==True]
-	# 			Y2[Y2==0] = math.inf
-	# 			min_val = np.min(np.array(Y2))
-	# 			# ...

@@ -40,44 +40,50 @@ data_dir = pathlib.Path(DATA_DIR)
 # %% 
 # ======================= DATA AUGMENTATION WITH GENERATOR =======================
 # create data generator
-VALIDATION_SPLIT = 0.25
+VALIDATION_SPLIT = 0.2
 datagen = ImageDataGenerator(
-	#featurewise_center=True,
-	#featurewise_std_normalization=True,
-	rescale=1. / 255,
-	rotation_range=20,
-	width_shift_range=0.1,
-	height_shift_range=0.1,
-	zoom_range=0.5,
+	#rescale=1. / 255,
 	horizontal_flip=True,
-	vertical_flip=True,
-	validation_split = VALIDATION_SPLIT,
+	shear_range=0.2,
+	rotation_range=30,
+	zoom_range=0.15,
+	brightness_range=[0.6, 1.4],
+	validation_split = VALIDATION_SPLIT
 )
 
-valid_datagen=ImageDataGenerator(rescale=1./255,validation_split=VALIDATION_SPLIT)
+valid_datagen = ImageDataGenerator(
+	#rescale=1./255,
+	validation_split=VALIDATION_SPLIT
+)
 
 ## generators 
 train_generator = datagen.flow_from_directory(
-    directory=DATA_DIR,
-    subset="training",
-    batch_size=BATCH_SIZE,
-    seed=123,
-    shuffle=False,
-    class_mode="categorical",
-    target_size=(IMG_HEIGHT,IMG_WIDTH))
+	directory=DATA_DIR,
+	subset="training",
+	batch_size= BATCH_SIZE,
+	seed=123,
+	shuffle=True,
+	class_mode="categorical",
+	target_size=(IMG_HEIGHT,IMG_WIDTH))
 
-STEP_SIZE_TRAIN = train_generator.n // train_generator.batch_size
+STEP_TRAIN = train_generator.n // train_generator.batch_size
 
-valid_generator = valid_datagen.flow_from_directory(
-    directory=DATA_DIR,
-    subset="validation",
-    batch_size=BATCH_SIZE,
-    seed=123,
-    shuffle=False,
-    class_mode="categorical",
-    target_size=(IMG_HEIGHT,IMG_WIDTH))
+val_generator = valid_datagen.flow_from_directory(
+	directory=DATA_DIR,
+	subset="validation",
+	batch_size=BATCH_SIZE,
+	seed=123,
+	shuffle=False,
+	class_mode="categorical",
+	target_size=(IMG_HEIGHT,IMG_WIDTH))
 
-STEP_SIZE_VALID = valid_generator.n // valid_generator.batch_size
+STEP_VALID = val_generator.n // val_generator.batch_size
+
+#%%
+print(train_generator.n)
+#%%
+print(val_generator.classes)
+
 # ======================= DATA AUGMENTATION WITH GENERATOR =======================
 # %%
 # ======================= DATASET FROM DIRECTORY =======================
@@ -85,6 +91,7 @@ train_ds = tf.keras.preprocessing.image_dataset_from_directory(
   DATA_DIR,
   validation_split=0.2,
   subset="training",
+  color_mode="rgb",
   seed=123,
   label_mode='categorical',
   image_size=(IMG_HEIGHT, IMG_WIDTH),
@@ -94,6 +101,7 @@ val_ds = tf.keras.preprocessing.image_dataset_from_directory(
   DATA_DIR,
   validation_split=0.2,
   subset="validation",
+  color_mode="rgb",
   seed=123,
   label_mode='categorical',
   image_size=(IMG_HEIGHT, IMG_WIDTH),
@@ -104,30 +112,30 @@ print(np.array(train_ds.class_names))
 
 # %%
 # ======================= DATA AUGMENTATION FOR ABOVE DATASETS =======================
-train_ds2 = train_ds.map(
-    lambda image, label: (tf.image.convert_image_dtype(image, tf.float32), label)
-).cache().map(
-    lambda image, label: (tf.image.random_flip_left_right(image), label)
-).map(
-    lambda image, label: (tf.image.random_contrast(image, lower=0.8, upper=1.2), label)
-).shuffle(
-    100
-).repeat()
+def augment(image, label):
+	image = tf.image.random_flip_left_right(image)
+	image = tf.image.random_contrast(image, lower=0.8, upper=1.2)
+	image = tf.image.resize_with_crop_or_pad(image, IMG_HEIGHT + 20, IMG_WIDTH + 20)
+	return image, label
 
+train_ds2 = train_ds.map(
+	lambda image, label: (tf.image.convert_image_dtype(image, tf.float32), label)
+).cache().shuffle(100).map(augment).repeat()
 
 val_ds2 = val_ds.map(
-    lambda image, label: (tf.image.convert_image_dtype(image, tf.float32), label)
+	lambda image, label: (tf.image.convert_image_dtype(image, tf.float32), label)
 ).cache()
 # =======================/ DATA AUGMENTATION FOR ABOVE DATASETS =======================
-# %%
-data_augmentation = keras.Sequential([layers.RandomFlip("horizontal"), layers.RandomRotation(0.1),])
-# Augment training images.
-augmented_train_ds = train_ds.map(lambda x, y: (data_augmentation(x, training=True), y))
-
-print(np.array(augmented_train_ds.class_names))
-# ======================= DATA AUGMENTATION NO GENERATOR =======================
-
-
+#%%
+# ======================= DATA AUGMENTATION LAYERS =======================
+# Yields worse results if included into the model :(
+data_augmentation = keras.Sequential([
+	layers.experimental.preprocessing.RandomFlip("horizontal"),
+	layers.experimental.preprocessing.RandomTranslation(height_factor=0.2, width_factor=0.2, fill_mode="wrap"),
+	layers.experimental.preprocessing.RandomRotation(factor=0.4, fill_mode="wrap"),
+	layers.experimental.preprocessing.RandomContrast(factor=0.2),
+])
+# ======================= DATA AUGMENTATION LAYERS =======================
 ################################### SELECT PRETRAINED MODEL ###################################
 # %%
 # ======================= Resnet50 =======================
@@ -169,25 +177,41 @@ BASE_MODEL = "EfficientNetB0"
 # %%
 # ======================= COMPILE MODEL =======================
 model = Sequential([
+	#tf.keras.layers.InputLayer(input_shape=(IMG_HEIGHT, IMG_WIDTH, 3)),
+	#data_augmentation,
 	pretrained_model,
 	Flatten(),
 	Dense(512, activation='relu'),
 	Dense(N_CLASSES, activation='softmax')
-]) 
+])
+
+model.build()
 model.compile(optimizer=Adam(lr=0.001),loss='categorical_crossentropy',metrics=['accuracy'])
 model.summary()
 # =======================/ COMPILE MODEL =======================
 # %%
 # ======================= TRAIN MODEL ======================
-epochs_ = 30
+epochs_ = 20
 history = model.fit(
 	train_ds,
 	epochs=epochs_,
-	#steps_per_epoch = 100,
 	validation_data=val_ds
 )
 history.history['base_model'] = BASE_MODEL
 # =======================/ TRAIN MODEL =======================
+# %%
+# ======================= TRAIN MODEL WITH GENERATOR (AUGMENT) ======================
+epochs_ = 10
+history = model.fit_generator(
+	train_generator, 
+	epochs=epochs_,
+	steps_per_epoch=STEP_TRAIN,
+	validation_data=val_generator,
+	validation_steps=STEP_VALID
+
+)
+history.history['base_model'] = BASE_MODEL
+# =======================/ TRAIN MODEL WITH GENERATOR (AUGMENT) ======================
 # %%
 # =======================/ PLOT HISTORY =======================
 fig, (pltAcc, pltLoss) = plt.subplots(2)
@@ -213,7 +237,7 @@ plt.show()
 # %%
 # ======================= SAVE MODEL =======================
 # Save the trained model
-model.save("./models/densenet121_no_augmentation_10e")
+model.save("./models/resnet50_with_augmentation_10e")
 # =======================/ SAVE MODEL =======================
 
 # %%
@@ -229,6 +253,10 @@ model_densenet.summary()
 model_efficientnet = keras.models.load_model("./models/efficientNetB0_no_augmentation_20e")
 model_efficientnet.compile()
 model_efficientnet.summary()
+
+model_resnet_with_augmentation = keras.models.load_model("./models/resnet50_with_augmentation_10e")
+model_resnet_with_augmentation.compile()
+model_resnet_with_augmentation.summary()
 # =======================/ LOAD MODEL =======================
 
 
@@ -254,9 +282,10 @@ y = []
 Y = []
 # Predicted classes
 Y_resnet = []
+Y_resnet_with_aug = []
 Y_densenet = []
 Y_efficientnet = []
-for im_name in im_list[:100]:
+for im_name in im_list:
 			# Read an image
 			img = cv2.imread(im_name)
 			y.append(cla_d["test/" + '/'.join(im_name.split('\\')[-1:])])
@@ -267,18 +296,21 @@ for im_name in im_list[:100]:
 			images = np.vstack([x])
 			
 			# Current model
-			predict_x = model.predict(images) 
-			Y.append(predict_x[0])
+			#predict_x = model.predict(images) 
+			#Y.append(predict_x[0])
 
 			# Loaded models
-			""" predict_x = model_resnet.predict(images)
+			predict_x = model_resnet.predict(images)
 			Y_resnet.append(predict_x[0])
+
+			predict_x = model_resnet_with_augmentation.predict(images)
+			Y_resnet_with_aug.append(predict_x[0])
 
 			predict_x = model_densenet.predict(images)
 			Y_densenet.append(predict_x[0])
 
 			predict_x = model_efficientnet.predict(images)
-			Y_efficientnet.append(predict_x[0]) """
+			Y_efficientnet.append(predict_x[0])
 
 			#print("predicted: " + str(np.argmax(predict_x[0],axis=0)) + ', (actual:' + str(cla_d["test/" + '/'.join(im_name.split('\\')[-1:])]) + ')')
 
@@ -290,15 +322,18 @@ importlib.reload(eval_)
 eval =  eval_.Evaluation()
 
 
+cmc_max_rank = 100
+"""
 cmc = eval.compute_CMC_ranks_nn(Y, y, cmc_max_rank)
 print("rank1: ", cmc[0], "%")
 
 cmcs = [cmc]
-""" cmcs =  []
-cmc_max_rank = 100
+"""
+cmcs =  []
 cmcs.append(eval.compute_CMC_ranks_nn(Y_resnet, y, cmc_max_rank))
+cmcs.append(eval.compute_CMC_ranks_nn(Y_resnet_with_aug, y, cmc_max_rank))
 cmcs.append(eval.compute_CMC_ranks_nn(Y_densenet, y, cmc_max_rank))
-cmcs.append(eval.compute_CMC_ranks_nn(Y_efficientnet, y, cmc_max_rank)) """
+cmcs.append(eval.compute_CMC_ranks_nn(Y_efficientnet, y, cmc_max_rank))
 
 
 # ======================= EVALUATE USING DIFFERENT METRICS =======================
@@ -306,7 +341,7 @@ cmcs.append(eval.compute_CMC_ranks_nn(Y_efficientnet, y, cmc_max_rank)) """
 # ======================= PLOT CMC ======================= 
 ranks = list(range(cmc_max_rank))
 colors = ['or', 'ob', 'og', 'oy', 'oo', 'og']
-labels = ["ResNet50", "DenseNet121", "EfficientNetB0"]
+labels = ["ResNet50", "ResNet50\n(with augmentation)", "DenseNet121", "EfficientNetB0"]
 
 fig, ax = plt.subplots()
 
@@ -324,8 +359,8 @@ plt.show()
 # ======================= PLOT rank1 and rank5 =======================
 x = np.arange(len(labels))
 width = 0.35
-rank1s = [cmcs[0][0], cmcs[1][0], cmcs[2][0]]
-rank5s = [cmcs[0][4], cmcs[1][4], cmcs[2][4]]
+rank1s = [cmcs[0][0], cmcs[1][0], cmcs[2][0], cmcs[3][0]]
+rank5s = [cmcs[0][4], cmcs[1][4], cmcs[2][4], cmcs[3][4]]
 
 fig, ax = plt.subplots()
 rects1 = ax.bar(x - width/2, rank1s, width, label='Rank 1')
