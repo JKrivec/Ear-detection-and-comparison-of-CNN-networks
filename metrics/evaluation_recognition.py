@@ -1,8 +1,8 @@
 import math
 import numpy as np
-import json
 
 class Evaluation:
+
 
 	def compute_rank1(self, Y, y):
 
@@ -34,20 +34,42 @@ class Evaluation:
 	def compute_rank1_nn(self, Y, y):
 		count_all = 0
 		count_correct = 0
-		for idx, preds in enumerate(Y):
-			maxIx = np.argmax(preds,axis=0) + 1
+		for ix, predictions in enumerate(Y):
+			maxIx = np.argmax(predictions,axis=0) + 1
 			print("maxIx -> ", maxIx)
-			print("detected -> ", y[idx])
-			if (maxIx == y[idx]):
+			print("detected -> ", y[ix])
+			if (maxIx == y[ix]):
+				count_correct += 1
+			count_all += 1
+
+		rank1 = count_correct/count_all
+		
+		print("correctly indentified -> ", count_correct)
+		return rank1*100
+
+	def compute_rankN_nn(self, Y, y, rank):
+		count_all = 0
+		count_correct = 0
+		for i in range(len(Y)):
+			predictions = Y[i]
+			top_n =  np.argsort(predictions)[::-1][:rank]
+			top_n += 1
+			if y[i] in top_n:
 				count_correct += 1
 			count_all += 1
 
 	
-		rank1 = count_correct/count_all
+		score = count_correct/count_all
 		
+		return score*100
 
-		print("correctly indentified -> ", count_correct)
-		return rank1*100
+	def compute_CMC_ranks_nn(self, Y, y, max_rank):
+		acc_by_rank_list = []
+		for rank in range(1, max_rank + 1):
+			acc_by_rank_list.append(self.compute_rankN_nn(Y, y, rank))
+
+		return acc_by_rank_list
+			
 
 	# Add your own metrics here, such as rank5, (all ranks), CMC plot, ROC, ...
 
